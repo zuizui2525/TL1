@@ -1,4 +1,16 @@
 import bpy
+import math
+import os
+import sys
+
+# Windows環境でのコンソール文字コードを UTF-8 (CP65001) に設定
+if sys.platform == "win32":
+    try:
+        os.system("chcp 65001 > nul")
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 # ブレンダーに登録するアドオン情報
 bl_info = {
@@ -69,6 +81,55 @@ class MYADDON_OT_create_ico_sphere(bpy.types.Operator):
 
         return {'FINISHED'}
 
+# オペレータ シーン出力
+class MYADDON_OT_export_scene(bpy.types.Operator):
+    bl_idname = "myaddon.myaddon_ot_export_scene"
+    bl_label = "シーン出力"
+    bl_description = "シーン情報をExportします"
+
+    # メニューを実行したときに呼ばれる関数
+    def execute(self, context):
+        print("シーン情報をExportします")
+
+        # 親オブジェクト未検出時のデフォルトインデックス値
+        not_found_index = -1
+
+        # オブジェクトとインデックスの対応マップを作成
+        object_index_map = {obj: i for i, obj in enumerate(bpy.context.scene.objects)}
+
+        # シーン内の全オブジェクトについて
+        for i, object in enumerate(bpy.context.scene.objects):
+            print(f"[{i}] {object.type} - {object.name}")
+
+            # ローカルトランスフォーム行列から平行移動、回転、スケーリングを抽出
+            # 型は Vector, Quaternion, Vector
+            trans, rot, scale = object.matrix_local.decompose()
+
+            # 回転を Quaternion から Euler (3軸での回転角) に変換
+            rot = rot.to_euler()
+
+            # ラジアンから度数法に変換
+            rot.x = math.degrees(rot.x)
+            rot.y = math.degrees(rot.y)
+            rot.z = math.degrees(rot.z)
+
+            # トランスフォーム情報を表示
+            print("Trans(%f,%f,%f)" % (trans.x, trans.y, trans.z))
+            print("Rot(%f,%f,%f)" % (rot.x, rot.y, rot.z))
+            print("Scale(%f,%f,%f)" % (scale.x, scale.y, scale.z))
+
+            # 親オブジェクトの名前およびインデックスを表示
+            if object.parent:
+                parent_index = object_index_map.get(object.parent, not_found_index)
+                print(f"Parent: {object.parent.name} (Index: {parent_index})")
+
+            print()
+
+        print("シーン情報をExportしました")
+        self.report({'INFO'}, "シーン情報をExportしました")
+
+        return {'FINISHED'}
+
 # トップバーの拡張メニュー
 class TOPBAR_MT_my_menu(bpy.types.Menu):
     # Blenderがクラスを識別する為の固有の文字列
@@ -87,6 +148,8 @@ class TOPBAR_MT_my_menu(bpy.types.Menu):
         self.layout.operator(MYADDON_OT_stretch_vertex.bl_idname, text=MYADDON_OT_stretch_vertex.bl_label)
         # ICO球生成オペレータのボタンを追加
         self.layout.operator(MYADDON_OT_create_ico_sphere.bl_idname, text=MYADDON_OT_create_ico_sphere.bl_label)
+        # シーン出力オペレータのボタンを追加
+        self.layout.operator(MYADDON_OT_export_scene.bl_idname, text=MYADDON_OT_export_scene.bl_label)
 
     # 既存のメニューにサブメニューを追加
     def submenu(self, context):
@@ -98,6 +161,7 @@ class TOPBAR_MT_my_menu(bpy.types.Menu):
 classes = (
     MYADDON_OT_stretch_vertex,
     MYADDON_OT_create_ico_sphere,
+    MYADDON_OT_export_scene,
     TOPBAR_MT_my_menu,
 )
 
