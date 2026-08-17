@@ -1,4 +1,5 @@
 import copy
+import json
 import math
 import os
 import sys
@@ -101,7 +102,7 @@ class MYADDON_OT_export_scene(bpy.types.Operator, bpy_extras.io_utils.ExportHelp
     bl_description = "シーン情報をExportします"
 
     # 出力するファイルの拡張子
-    filename_ext = ".scene"
+    filename_ext = ".json"
 
     def write_and_print(self, file, str):
         """コンソール表示とファイル書き出しを同時におこなう"""
@@ -174,6 +175,102 @@ class MYADDON_OT_export_scene(bpy.types.Operator, bpy_extras.io_utils.ExportHelp
         for child in object.children:
             self.parse_scene_recursive(file, child, level + next_level_increment)
 
+    def parse_scene_recursive_json(self, data_parent, object, level):
+        """シーン解析用再帰関数(JSON版)"""
+        # 定数定義 (マジックナンバー・リテラル回避)
+        key_type = "type"
+        key_name = "name"
+        key_transform = "transform"
+        key_translation = "translation"
+        key_rotation = "rotation"
+        key_scaling = "scaling"
+        key_file_name = "file_name"
+        key_collider = "collider"
+        key_center = "center"
+        key_size = "size"
+        key_children = "children"
+
+        prop_file_name = "file_name"
+        prop_collider = "collider"
+        prop_collider_center = "collider_center"
+        prop_collider_size = "collider_size"
+
+        min_children_count = 0
+        level_increment = 1
+
+        json_object = dict()
+        json_object[key_type] = object.type
+        json_object[key_name] = object.name
+
+        # ローカルトランスフォーム行列から平行移動、回転、スケーリングを抽出
+        trans, rot, scale = object.matrix_local.decompose()
+
+        # 回転を Quaternion から Euler (3軸での回転角) に変換
+        rot = rot.to_euler()
+
+        # ラジアンから度数法に変換
+        rot.x = math.degrees(rot.x)
+        rot.y = math.degrees(rot.y)
+        rot.z = math.degrees(rot.z)
+
+        # トランスフォーム情報をディクショナリに登録
+        transform = dict()
+        transform[key_translation] = (trans.x, trans.y, trans.z)
+        transform[key_rotation] = (rot.x, rot.y, rot.z)
+        transform[key_scaling] = (scale.x, scale.y, scale.z)
+        json_object[key_transform] = transform
+
+        # カスタムプロパティ 'file_name' の出力
+        if prop_file_name in object:
+            json_object[key_file_name] = object[prop_file_name]
+
+        # カスタムプロパティ 'collider' の出力
+        if prop_collider in object:
+            collider = dict()
+            collider[key_type] = object[prop_collider]
+            if prop_collider_center in object:
+                collider[key_center] = object[prop_collider_center].to_list()
+            if prop_collider_size in object:
+                collider[key_size] = object[prop_collider_size].to_list()
+            json_object[key_collider] = collider
+
+        # 子ノードがあれば再帰走査
+        if len(object.children) > min_children_count:
+            json_object[key_children] = list()
+            for child in object.children:
+                self.parse_scene_recursive_json(json_object[key_children], child, level + level_increment)
+
+        # 親オブジェクトのリストに追加
+        data_parent.append(json_object)
+
+    def export_json(self):
+        """JSON形式でファイルに出力"""
+        key_name = "name"
+        key_objects = "objects"
+        val_scene_name = "scene"
+        initial_depth = 0
+        indent_spaces = 4
+        encoding_utf8 = "utf-8"
+
+        json_object_root = dict()
+        json_object_root[key_name] = val_scene_name
+        json_object_root[key_objects] = list()
+
+        # シーン内の全オブジェクトについて走査
+        for object in bpy.context.scene.objects:
+            # 親オブジェクトがあるものはスキップ (親からの再帰で処理するため)
+            if object.parent:
+                continue
+            self.parse_scene_recursive_json(json_object_root[key_objects], object, initial_depth)
+
+        # オブジェクトをJSON文字列にエンコード (改行・インデント付き)
+        json_text = json.dumps(json_object_root, ensure_ascii=False, cls=json.JSONEncoder, indent=indent_spaces)
+        print(json_text)
+
+        # ファイルをテキスト形式で書き出し用にオープン
+        with open(self.filepath, "wt", encoding=encoding_utf8) as file:
+            file.write(json_text)
+
     def export(self):
         """ファイルに出力"""
         print("シーン情報出力開始... %r" % self.filepath)
@@ -194,8 +291,8 @@ class MYADDON_OT_export_scene(bpy.types.Operator, bpy_extras.io_utils.ExportHelp
     def execute(self, context):
         print("シーン情報をExportします")
 
-        # ファイルに出力
-        self.export()
+        # ファイルに出力 (JSON版)
+        self.export_json()
 
         print("シーン情報をExportしました")
         self.report({'INFO'}, "シーン情報をExportしました")
