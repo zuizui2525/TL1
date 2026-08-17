@@ -1,8 +1,11 @@
-import bpy
-import bpy_extras
+import copy
 import math
 import os
 import sys
+import bpy
+import bpy_extras
+import gpu
+import gpu_extras.batch
 
 # Windows環境でのコンソール文字コードを UTF-8 (CP65001) に設定
 if sys.platform == "win32":
@@ -35,12 +38,20 @@ def register():
 
     # メニュー項目を追加
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_my_menu.submenu)
+    # 3Dビューに描画関数を追加
+    DrawCollider.handle = bpy.types.SpaceView3D.draw_handler_add(
+        DrawCollider.draw_collider, (), "WINDOW", "POST_VIEW"
+    )
     print("レベルエディタが有効化されました。")
     
 # アドオン無効化時コールバック
 def unregister():
     # メニュー項目を削除
     bpy.types.TOPBAR_MT_editor_menus.remove(TOPBAR_MT_my_menu.submenu)
+    # 3Dビューから描画関数を削除
+    if DrawCollider.handle is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(DrawCollider.handle, "WINDOW")
+        DrawCollider.handle = None
 
     # Blenderからクラスを削除
     for cls in classes:
@@ -212,6 +223,77 @@ class OBJECT_PT_file_name(bpy.types.Panel):
         else:
             # プロパティがなければ、プロパティ追加ボタンを表示
             self.layout.operator(MYADDON_OT_add_filename.bl_idname)
+
+# コライダー描画
+class DrawCollider:
+    # 描画ハンドル
+    handle = None
+
+    # 3Dビューに登録する描画関数
+    @staticmethod
+    def draw_collider():
+        # 定数定義 (マジックナンバー回避)
+        offset_val = 0.5
+        offsets = [
+            [-offset_val, -offset_val, -offset_val],  # 左下前
+            [+offset_val, -offset_val, -offset_val],  # 右下前
+            [-offset_val, +offset_val, -offset_val],  # 左上前
+            [+offset_val, +offset_val, -offset_val],  # 右上前
+            [-offset_val, -offset_val, +offset_val],  # 左下奥
+            [+offset_val, -offset_val, +offset_val],  # 右下奥
+            [-offset_val, +offset_val, +offset_val],  # 左上奥
+            [+offset_val, +offset_val, +offset_val],  # 右上奥
+        ]
+        box_size = [2.0, 2.0, 2.0]
+        draw_color = [0.5, 1.0, 1.0, 1.0]
+
+        # 頂点データ・インデックスデータ
+        vertices = {"pos": []}
+        indices = []
+
+        # シーン内のオブジェクトを走査
+        for obj in bpy.context.scene.objects:
+            # 追加前の頂点数
+            start_idx = len(vertices["pos"])
+
+            # Boxの8頂点分回す
+            for offset in offsets:
+                # オブジェクトの中心座標をコピー
+                pos = copy.copy(obj.location)
+                # 中心点を基準に各頂点ごとにずらす
+                pos[0] += offset[0] * box_size[0]
+                pos[1] += offset[1] * box_size[1]
+                pos[2] += offset[2] * box_size[2]
+                # 頂点データリストに座標を追加
+                vertices["pos"].append(pos)
+
+            # 前面を構成する辺の頂点インデックス
+            indices.append([start_idx + 0, start_idx + 1])
+            indices.append([start_idx + 2, start_idx + 3])
+            indices.append([start_idx + 0, start_idx + 2])
+            indices.append([start_idx + 1, start_idx + 3])
+            # 奥面を構成する辺の頂点インデックス
+            indices.append([start_idx + 4, start_idx + 5])
+            indices.append([start_idx + 6, start_idx + 7])
+            indices.append([start_idx + 4, start_idx + 6])
+            indices.append([start_idx + 5, start_idx + 7])
+            # 手前と奥を繋ぐ辺の頂点インデックス
+            indices.append([start_idx + 0, start_idx + 4])
+            indices.append([start_idx + 1, start_idx + 5])
+            indices.append([start_idx + 2, start_idx + 6])
+            indices.append([start_idx + 3, start_idx + 7])
+
+        # ビルトインのシェーダを取得
+        shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+
+        # バッチを作成
+        batch = gpu_extras.batch.batch_for_shader(shader, "LINES", vertices, indices=indices)
+
+        # シェーダのパラメータ設定と描画
+        shader.bind()
+        shader.uniform_float("color", draw_color)
+        batch.draw(shader)
+
 
 # トップバーの拡張メニュー
 class TOPBAR_MT_my_menu(bpy.types.Menu):
