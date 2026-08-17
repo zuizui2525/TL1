@@ -100,14 +100,23 @@ class MYADDON_OT_export_scene(bpy.types.Operator, bpy_extras.io_utils.ExportHelp
 
     def parse_scene_recursive(self, file, object, level):
         """シーン解析用再帰関数"""
-        # 深さ分インデントする (タブを挿入)
+        # マジックナンバー・文字列の定数定義
         tab_indent = "\t"
-        indent = ""
+        empty_str = ""
+        property_filename = "file_name"
+        fmt_trans = "T %f %f %f"
+        fmt_rot = "R %f %f %f"
+        fmt_scale = "S %f %f %f"
+        fmt_filename = "N %s"
+        tag_end = "END"
+
+        # 深さ分インデントする (タブを挿入)
+        indent = empty_str
         for i in range(level):
             indent += tab_indent
 
-        # オブジェクト名書き込み
-        self.write_and_print(file, indent + object.type + " - " + object.name)
+        # オブジェクト種別書き込み
+        self.write_and_print(file, indent + object.type)
 
         # ローカルトランスフォーム行列から平行移動、回転、スケーリングを抽出
         trans, rot, scale = object.matrix_local.decompose()
@@ -121,10 +130,16 @@ class MYADDON_OT_export_scene(bpy.types.Operator, bpy_extras.io_utils.ExportHelp
         rot.z = math.degrees(rot.z)
 
         # トランスフォーム情報を表示
-        self.write_and_print(file, indent + "Trans(%f,%f,%f)" % (trans.x, trans.y, trans.z))
-        self.write_and_print(file, indent + "Rot(%f,%f,%f)" % (rot.x, rot.y, rot.z))
-        self.write_and_print(file, indent + "Scale(%f,%f,%f)" % (scale.x, scale.y, scale.z))
-        self.write_and_print(file, '')
+        self.write_and_print(file, indent + fmt_trans % (trans.x, trans.y, trans.z))
+        self.write_and_print(file, indent + fmt_rot % (rot.x, rot.y, rot.z))
+        self.write_and_print(file, indent + fmt_scale % (scale.x, scale.y, scale.z))
+
+        # カスタムプロパティ 'file_name' の出力
+        if property_filename in object:
+            self.write_and_print(file, indent + fmt_filename % object[property_filename])
+
+        self.write_and_print(file, indent + tag_end)
+        self.write_and_print(file, empty_str)
 
         # 子ノードへ進む(深さが1上がる)
         next_level_increment = 1
@@ -159,6 +174,45 @@ class MYADDON_OT_export_scene(bpy.types.Operator, bpy_extras.io_utils.ExportHelp
 
         return {'FINISHED'}
 
+# オペレータ カスタムプロパティ['file_name']追加
+class MYADDON_OT_add_filename(bpy.types.Operator):
+    bl_idname = "myaddon.myaddon_ot_add_filename"
+    bl_label = "FileName 追加"
+    bl_description = "['file_name']カスタムプロパティを追加します"
+    # リドゥ、アンドゥ可能オプション
+    bl_options = {'REGISTER', 'UNDO'}
+
+    # メニューを実行したときに呼ばれるコールバック関数
+    def execute(self, context):
+        property_name = "file_name"
+        initial_value = ""
+        # ['file_name']カスタムプロパティを追加
+        context.object[property_name] = initial_value
+
+        return {'FINISHED'}
+
+# パネル ファイル名
+class OBJECT_PT_file_name(bpy.types.Panel):
+    """オブジェクトのファイルネームパネル"""
+    bl_idname = "OBJECT_PT_file_name"
+    bl_label = "FileName"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "object"
+
+    # サブメニューの描画
+    def draw(self, context):
+        property_name = "file_name"
+        prop_path = '["file_name"]'
+
+        # パネルに項目を追加
+        if property_name in context.object:
+            # 既にプロパティがあれば、プロパティを表示
+            self.layout.prop(context.object, prop_path, text=self.bl_label)
+        else:
+            # プロパティがなければ、プロパティ追加ボタンを表示
+            self.layout.operator(MYADDON_OT_add_filename.bl_idname)
+
 # トップバーの拡張メニュー
 class TOPBAR_MT_my_menu(bpy.types.Menu):
     # Blenderがクラスを識別する為の固有の文字列
@@ -191,6 +245,8 @@ classes = (
     MYADDON_OT_stretch_vertex,
     MYADDON_OT_create_ico_sphere,
     MYADDON_OT_export_scene,
+    MYADDON_OT_add_filename,
+    OBJECT_PT_file_name,
     TOPBAR_MT_my_menu,
 )
 
